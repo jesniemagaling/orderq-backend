@@ -1,5 +1,13 @@
+# dependencies
 node_modules/
-.env
+
+# builds
 dist/
 build/
+
+# env files
+.env
+.env.*
+
+# misc
 .vscode/
