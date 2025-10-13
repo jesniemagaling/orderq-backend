@@ -15,7 +15,7 @@ export const createOrder = async (req, res) => {
 
     // Verify valid session
     const [sessionRows] = await connection.query(
-      'SELECT id FROM sessions WHERE token = ? AND is_active = 1',
+      'SELECT id FROM sessions WHERE token = ? AND is_active = 1 AND expires_at > NOW()',
       [session_token]
     );
 
@@ -25,6 +25,8 @@ export const createOrder = async (req, res) => {
     }
 
     const session_id = sessionRows[0].id;
+
+    // Compute total amount
     const total_amount = items.reduce(
       (sum, item) => sum + item.price * item.quantity,
       0
@@ -45,12 +47,22 @@ export const createOrder = async (req, res) => {
 
     const orderId = orderResult.insertId;
 
-    // Insert items
+    // Insert items and update stock
     for (const item of items) {
+      // Insert order item
       await connection.query(
         `INSERT INTO order_items (order_id, menu_id, quantity, price)
           VALUES (?, ?, ?, ?)`,
         [orderId, item.menu_id, item.quantity, item.price]
+      );
+
+      // Deduct from menu stocks
+      await connection.query(
+        `UPDATE menu 
+          SET stocks = GREATEST(stocks - ?, 0),
+              status = CASE WHEN stocks - ? <= 0 THEN 'out_of_stock' ELSE 'in_stock' END
+          WHERE id = ?`,
+        [item.quantity, item.quantity, item.menu_id]
       );
     }
 
@@ -119,6 +131,45 @@ export const getOrderDetails = async (req, res) => {
     res.status(200).json({ order: order[0], items });
   } catch (error) {
     console.error('Error fetching order details:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Get all orders for a session (shared across devices)
+export const getOrdersBySession = async (req, res) => {
+  const { token } = req.query;
+
+  if (!token)
+    return res.status(400).json({ message: 'Session token is required' });
+
+  try {
+    // Validate session
+    const [session] = await db.query(
+      'SELECT id, table_id FROM sessions WHERE token = ? AND is_active = 1 AND expires_at > NOW()',
+      [token]
+    );
+
+    if (session.length === 0)
+      return res.status(404).json({ message: 'Invalid or expired session' });
+
+    const session_id = session[0].id;
+
+    // Fetch orders linked to this session
+    const [orders] = await db.query(
+      `SELECT 
+          o.id, o.status, o.payment_status, o.payment_method,
+          o.total_amount, o.created_at,
+          t.table_number
+        FROM orders o
+        JOIN tables t ON o.table_id = t.id
+        WHERE o.session_id = ?
+        ORDER BY o.created_at DESC`,
+      [session_id]
+    );
+
+    res.status(200).json(orders);
+  } catch (error) {
+    console.error('Error fetching orders by session:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
