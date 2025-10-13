@@ -4,7 +4,6 @@ import { db } from '../config/db.js';
 export const createOrder = async (req, res) => {
   const { table_id, session_token, items, payment_method } = req.body;
 
-  // Validate input
   if (!table_id || !session_token || !items || items.length === 0) {
     return res.status(400).json({ message: 'Missing order details' });
   }
@@ -14,32 +13,30 @@ export const createOrder = async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    // Check if session exists
-    const [session] = await connection.query(
-      `SELECT id FROM sessions WHERE token = ? AND is_active = 1`,
+    // Verify valid session
+    const [sessionRows] = await connection.query(
+      'SELECT id FROM sessions WHERE token = ? AND is_active = 1',
       [session_token]
     );
 
-    if (session.length === 0) {
+    if (sessionRows.length === 0) {
       await connection.rollback();
       return res.status(400).json({ message: 'Invalid or expired session' });
     }
 
-    // define session_id properly here
-    const session_id = session[0].id;
+    const session_id = sessionRows[0].id;
+    const total_amount = items.reduce(
+      (sum, item) => sum + item.price * item.quantity,
+      0
+    );
 
-    // Compute total amount
-    const total_amount = items.reduce((sum, item) => sum + item.subtotal, 0);
-
-    // Insert into orders
+    // Insert order
     const [orderResult] = await connection.query(
-      `INSERT INTO orders 
-      (table_id, session_id, session_token, status, serve_status, payment_method, payment_status, total_amount) 
-      VALUES (?, ?, ?, 'pending', 'unserved', ?, ?, ?)`,
+      `INSERT INTO orders (table_id, session_id, status, serve_status, payment_method, payment_status, total_amount)
+        VALUES (?, ?, 'pending', 'unserved', ?, ?, ?)`,
       [
         table_id,
         session_id,
-        session_token,
         payment_method,
         payment_method === 'online' ? 'paid' : 'unpaid',
         total_amount,
@@ -51,14 +48,13 @@ export const createOrder = async (req, res) => {
     // Insert items
     for (const item of items) {
       await connection.query(
-        `INSERT INTO order_items (order_id, menu_id, quantity, subtotal)
-        VALUES (?, ?, ?, ?)`,
-        [orderId, item.menu_id, item.quantity, item.subtotal]
+        `INSERT INTO order_items (order_id, menu_id, quantity, price)
+          VALUES (?, ?, ?, ?)`,
+        [orderId, item.menu_id, item.quantity, item.price]
       );
     }
 
     await connection.commit();
-
     res.status(201).json({ message: 'Order created successfully', orderId });
   } catch (error) {
     await connection.rollback();
