@@ -84,16 +84,17 @@ export const getAllOrders = async (req, res) => {
       SELECT 
         o.id,
         o.table_id,
-        o.session_token,
+        t.table_number,
+        s.token AS session_token,
         o.status,
         o.serve_status,
         o.payment_method,
         o.payment_status,
         o.total_amount,
-        o.created_at,
-        s.token AS session_token
+        o.created_at
       FROM orders o
       LEFT JOIN sessions s ON o.session_id = s.id
+      LEFT JOIN tables t ON o.table_id = t.id
       ORDER BY o.created_at DESC
     `);
 
@@ -170,6 +171,30 @@ export const getOrdersBySession = async (req, res) => {
     res.status(200).json(orders);
   } catch (error) {
     console.error('Error fetching orders by session:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Mark an order as paid (for cashier billing out)
+export const markOrderAsPaid = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Update payment status and order status
+    const [result] = await db.query(
+      `UPDATE orders 
+        SET payment_status = 'paid', status = 'paid'
+        WHERE id = ?`,
+      [id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    res.status(200).json({ message: 'Order marked as paid' });
+  } catch (error) {
+    console.error('Error marking order as paid:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };

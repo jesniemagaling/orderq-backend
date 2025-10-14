@@ -1,0 +1,50 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: orderq-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - '3306:3306'
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./orderq_schema.sql:/docker-entrypoint-initdb.d/orderq_schema.sql
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: orderq-phpmyadmin
+    restart: always
+    environment:
+      PMA_HOST: ${DB_HOST}
+      PMA_USER: ${MYSQL_ROOT_USER}
+      PMA_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    ports:
+      - '8080:80'
+    depends_on:
+      - mysql
+
+  backend:
+    build: .
+    container_name: orderq-backend
+    restart: always
+    ports:
+      - '5000:5000'
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+    depends_on:
+      - mysql
+    command: ['npm', 'run', 'dev']
+
+volumes:
+  mysql_data:
