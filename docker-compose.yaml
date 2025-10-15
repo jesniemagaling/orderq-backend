@@ -19,8 +19,8 @@ services:
     container_name: orderq-phpmyadmin
     restart: always
     environment:
-      PMA_HOST: ${DB_HOST}
-      PMA_USER: ${MYSQL_ROOT_USER}
+      PMA_HOST: mysql
+      PMA_USER: root
       PMA_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     ports:
       - '8080:80'
@@ -37,7 +37,7 @@ services:
       - .:/usr/src/app
       - /usr/src/app/node_modules
     environment:
-      - DB_HOST=${DB_HOST}
+      - DB_HOST=mysql
       - DB_PORT=${DB_PORT}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
