@@ -1,4 +1,5 @@
 import { db } from '../config/db.js';
+import { notifyNewOrder, notifyTableStatus } from '../../index.js';
 
 // Create a new order
 export const createOrder = async (req, res) => {
@@ -32,7 +33,7 @@ export const createOrder = async (req, res) => {
       0
     );
 
-    // Insert order
+    // Insert new order
     const [orderResult] = await connection.query(
       `INSERT INTO orders (table_id, session_id, status, serve_status, payment_method, payment_status, total_amount)
         VALUES (?, ?, 'pending', 'unserved', ?, ?, ?)`,
@@ -47,16 +48,14 @@ export const createOrder = async (req, res) => {
 
     const orderId = orderResult.insertId;
 
-    // Insert items and update stock
+    // Insert order items and update stocks
     for (const item of items) {
-      // Insert order item
       await connection.query(
         `INSERT INTO order_items (order_id, menu_id, quantity, price)
           VALUES (?, ?, ?, ?)`,
         [orderId, item.menu_id, item.quantity, item.price]
       );
 
-      // Deduct from menu stocks
       await connection.query(
         `UPDATE menu 
           SET stocks = GREATEST(stocks - ?, 0),
@@ -66,8 +65,32 @@ export const createOrder = async (req, res) => {
       );
     }
 
+    // Set table status to "in_progress"
+    await connection.query(
+      `UPDATE tables SET status = 'in_progress' WHERE id = ?`,
+      [table_id]
+    );
+
     await connection.commit();
-    res.status(201).json({ message: 'Order created successfully', orderId });
+
+    // Emit live update via WebSocket
+    notifyNewOrder(table_id, {
+      id: orderId,
+      table_id,
+      total_amount,
+      items,
+      status: 'pending',
+    });
+
+    notifyTableStatus(table_id, 'in_progress');
+
+    res.status(201).json({
+      message: 'Order created successfully',
+      orderId,
+      table_id,
+      total_amount,
+      items,
+    });
   } catch (error) {
     await connection.rollback();
     console.error('Error creating order:', error);
@@ -77,66 +100,104 @@ export const createOrder = async (req, res) => {
   }
 };
 
-// Get all orders
+// Get all orders with their items
 export const getAllOrders = async (req, res) => {
   try {
     const [orders] = await db.query(`
       SELECT 
         o.id,
         o.table_id,
-        t.table_number,
-        s.token AS session_token,
         o.status,
-        o.serve_status,
+        o.total_amount,
         o.payment_method,
         o.payment_status,
-        o.total_amount,
-        o.created_at
+        o.created_at,
+        t.table_number
       FROM orders o
-      LEFT JOIN sessions s ON o.session_id = s.id
       LEFT JOIN tables t ON o.table_id = t.id
       ORDER BY o.created_at DESC
     `);
 
-    res.status(200).json(orders);
+    if (orders.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // Get order items
+    const [items] = await db.query(`
+      SELECT 
+        oi.order_id,
+        m.id AS menu_id,
+        m.name AS name,
+        oi.quantity,
+        oi.price
+      FROM order_items oi
+      JOIN menu m ON oi.menu_id = m.id
+    `);
+
+    // Attach items to each order
+    const formattedOrders = orders.map((order) => ({
+      ...order,
+      items: items
+        .filter((item) => item.order_id === order.id)
+        .map((item) => ({
+          id: item.menu_id,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+        })),
+    }));
+
+    res.status(200).json(formattedOrders);
   } catch (error) {
-    console.error('Error fetching orders:', error);
+    console.error('Error fetching orders with items:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
-// Get specific order with its items
+// Get specific order with items
 export const getOrderDetails = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const [order] = await db.query('SELECT * FROM orders WHERE id = ?', [id]);
-    if (order.length === 0)
+    const [orderRows] = await db.query(`SELECT * FROM orders WHERE id = ?`, [
+      id,
+    ]);
+
+    if (orderRows.length === 0)
       return res.status(404).json({ message: 'Order not found' });
+
+    const order = orderRows[0];
 
     const [items] = await db.query(
       `SELECT 
-        oi.id,
-        oi.menu_id,
-        oi.quantity,
-        oi.subtotal,
-        m.name AS menu_name,
-        m.price,
-        m.image_url
-      FROM order_items oi
-      JOIN menu m ON oi.menu_id = m.id
-      WHERE oi.order_id = ?`,
+          oi.menu_id,
+          m.name AS menu_name,
+          oi.quantity,
+          oi.price,
+          m.image_url
+        FROM order_items oi
+        JOIN menu m ON oi.menu_id = m.id
+        WHERE oi.order_id = ?`,
       [id]
     );
 
-    res.status(200).json({ order: order[0], items });
+    res.status(200).json({
+      ...order,
+      items: items.map((i) => ({
+        id: i.menu_id,
+        name: i.menu_name,
+        quantity: i.quantity,
+        price: i.price,
+        image_url: i.image_url,
+      })),
+    });
   } catch (error) {
     console.error('Error fetching order details:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
-// Get all orders for a session (shared across devices)
+// Get all orders for a session
 export const getOrdersBySession = async (req, res) => {
   const { token } = req.query;
 
@@ -144,7 +205,6 @@ export const getOrdersBySession = async (req, res) => {
     return res.status(400).json({ message: 'Session token is required' });
 
   try {
-    // Validate session
     const [session] = await db.query(
       'SELECT id, table_id FROM sessions WHERE token = ? AND is_active = 1 AND expires_at > NOW()',
       [token]
@@ -155,7 +215,6 @@ export const getOrdersBySession = async (req, res) => {
 
     const session_id = session[0].id;
 
-    // Fetch orders linked to this session
     const [orders] = await db.query(
       `SELECT 
           o.id, o.status, o.payment_status, o.payment_method,
@@ -168,19 +227,37 @@ export const getOrdersBySession = async (req, res) => {
       [session_id]
     );
 
-    res.status(200).json(orders);
+    // Fetch and attach items for each order
+    const [items] = await db.query(`
+      SELECT 
+        oi.order_id, m.name AS name, oi.quantity, oi.price
+      FROM order_items oi
+      JOIN menu m ON oi.menu_id = m.id
+    `);
+
+    const result = orders.map((o) => ({
+      ...o,
+      items: items
+        .filter((i) => i.order_id === o.id)
+        .map((i) => ({
+          name: i.name,
+          quantity: i.quantity,
+          price: i.price,
+        })),
+    }));
+
+    res.status(200).json(result);
   } catch (error) {
     console.error('Error fetching orders by session:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
 
-// Mark an order as paid (for cashier billing out)
+// Mark order as paid
 export const markOrderAsPaid = async (req, res) => {
   const { id } = req.params;
 
   try {
-    // Update payment status and order status
     const [result] = await db.query(
       `UPDATE orders 
         SET payment_status = 'paid', status = 'paid'
@@ -188,9 +265,8 @@ export const markOrderAsPaid = async (req, res) => {
       [id]
     );
 
-    if (result.affectedRows === 0) {
+    if (result.affectedRows === 0)
       return res.status(404).json({ message: 'Order not found' });
-    }
 
     res.status(200).json({ message: 'Order marked as paid' });
   } catch (error) {
