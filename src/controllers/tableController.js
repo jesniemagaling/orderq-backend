@@ -28,7 +28,7 @@ export const getAllTables = async (req, res) => {
   }
 };
 
-// Update a table's status manually (admin or cashier)
+// Update a table's status manually
 export const updateTableStatus = async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -49,7 +49,7 @@ export const updateTableStatus = async (req, res) => {
       return res.status(404).json({ message: 'Table not found' });
     }
 
-    // Emit WebSocket notification for table update
+    // Emit WebSocket notification for live UI update
     notifyTableStatus(id, status);
 
     res.status(200).json({ message: `Table status updated to ${status}` });
@@ -59,7 +59,7 @@ export const updateTableStatus = async (req, res) => {
   }
 };
 
-// Get table details including current session, orders, and items
+// Get table details: table info, current session, orders, and items
 export const getTableDetails = async (req, res) => {
   const { table_id } = req.params;
 
@@ -76,7 +76,7 @@ export const getTableDetails = async (req, res) => {
 
     const table = tableRows[0];
 
-    // Get the most recent active session for this table
+    // Get most recent active session
     const [sessionRows] = await db.query(
       `SELECT id, token 
         FROM sessions 
@@ -97,7 +97,7 @@ export const getTableDetails = async (req, res) => {
 
     const session = sessionRows[0];
 
-    // Get all orders under this session
+    // Fetch all orders for this session
     const [orders] = await db.query(
       `SELECT 
           o.id,
@@ -121,7 +121,7 @@ export const getTableDetails = async (req, res) => {
       });
     }
 
-    // Get all order items
+    // Get all items for these orders
     const orderIds = orders.map((o) => o.id);
     let items = [];
 
@@ -141,36 +141,24 @@ export const getTableDetails = async (req, res) => {
     }
 
     // Attach items to their respective orders
-    const firstOrderTime = new Date(orders[0].created_at);
+    const formattedOrders = orders.map((order, index) => ({
+      ...order,
+      is_additional: index > 0, // if not the first, mark as additional
+      items: items
+        .filter((i) => i.order_id === order.id)
+        .map((i) => ({
+          id: i.menu_id,
+          name: i.menu_name,
+          quantity: i.quantity,
+          price: i.price,
+        })),
+    }));
 
-    const formattedOrders = orders.map((order) => {
-      const orderTime = new Date(order.created_at);
-      const diffMinutes = (orderTime - firstOrderTime) / (1000 * 60);
-
-      return {
-        ...order,
-        is_additional: diffMinutes >= 1, // mark as additional if 5+ mins apart
-        items: items
-          .filter((i) => i.order_id === order.id)
-          .map((i) => ({
-            id: i.menu_id,
-            name: i.menu_name,
-            quantity: i.quantity,
-            price: i.price,
-          })),
-      };
-    });
-
-    // Detect if multiple unpaid orders exist (used for red badge indicator)
+    // Determine if additional unpaid orders exist
     const unpaidOrders = formattedOrders.filter(
       (o) => o.payment_status === 'unpaid'
     );
     const has_additional_order = unpaidOrders.length > 1;
-
-    // emit live update if table has new unpaid orders
-    if (has_additional_order) {
-      notifyNewOrder(table.id, { has_additional_order: true });
-    }
 
     res.status(200).json({
       table,

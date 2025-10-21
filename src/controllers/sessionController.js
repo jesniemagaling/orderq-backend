@@ -1,5 +1,6 @@
 import { db } from '../config/db.js';
 import crypto from 'crypto';
+import { notifyTableStatus } from '../../index.js';
 
 // Create or reuse active session when QR is scanned
 export const createSession = async (req, res) => {
