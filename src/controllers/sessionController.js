@@ -64,6 +64,9 @@ export const createSession = async (req, res) => {
         'occupied',
         table.id,
       ]);
+
+      // Emit WebSocket update
+      notifyTableStatus(table.id, 'occupied');
     }
 
     await connection.commit();

@@ -67,7 +67,9 @@ export const createOrder = async (req, res) => {
 
     // Set table status to "in_progress"
     await connection.query(
-      `UPDATE tables SET status = 'in_progress' WHERE id = ?`,
+      `UPDATE tables 
+    SET status = 'in_progress' 
+    WHERE id = ? AND status IN ('available', 'occupied')`,
       [table_id]
     );
 
