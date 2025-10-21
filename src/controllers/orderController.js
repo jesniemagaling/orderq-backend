@@ -1,7 +1,7 @@
 import { db } from '../config/db.js';
 import { notifyNewOrder, notifyTableStatus } from '../../index.js';
 
-// Create a new order
+// Create an order
 export const createOrder = async (req, res) => {
   const { table_id, session_token, items, payment_method } = req.body;
 
@@ -65,17 +65,9 @@ export const createOrder = async (req, res) => {
       );
     }
 
-    // Set table status to "in_progress"
-    await connection.query(
-      `UPDATE tables 
-    SET status = 'in_progress' 
-    WHERE id = ? AND status IN ('available', 'occupied')`,
-      [table_id]
-    );
-
     await connection.commit();
 
-    // Emit live update via WebSocket
+    // Notify frontend that a new order was created (but not confirmed yet)
     notifyNewOrder(table_id, {
       id: orderId,
       table_id,
@@ -84,10 +76,8 @@ export const createOrder = async (req, res) => {
       status: 'pending',
     });
 
-    notifyTableStatus(table_id, 'in_progress');
-
     res.status(201).json({
-      message: 'Order created successfully',
+      message: 'Order created successfully (awaiting confirmation)',
       orderId,
       table_id,
       total_amount,
@@ -273,6 +263,37 @@ export const markOrderAsPaid = async (req, res) => {
     res.status(200).json({ message: 'Order marked as paid' });
   } catch (error) {
     console.error('Error marking order as paid:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Confirm an order
+export const confirmOrder = async (req, res) => {
+  const { id } = req.params; // order id
+
+  try {
+    const [orders] = await db.query(
+      'SELECT table_id FROM orders WHERE id = ? LIMIT 1',
+      [id]
+    );
+
+    if (orders.length === 0) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    const tableId = orders[0].table_id;
+
+    await db.query('UPDATE tables SET status = "in_progress" WHERE id = ?', [
+      tableId,
+    ]);
+
+    notifyTableStatus(tableId, 'in_progress');
+
+    res
+      .status(200)
+      .json({ message: `Order #${id} confirmed, table set to in_progress` });
+  } catch (error) {
+    console.error('Error confirming order:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
