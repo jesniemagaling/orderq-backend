@@ -50,7 +50,7 @@ export const createSession = async (req, res) => {
       });
     }
 
-    // No active session → create new one
+    // No active session thn it will create new one
     const token = crypto.randomBytes(24).toString('hex');
 
     await connection.query(

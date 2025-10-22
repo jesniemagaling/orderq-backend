@@ -36,7 +36,7 @@ export const createOrder = async (req, res) => {
     // Insert new order — status = 'unserved' by default
     const [orderResult] = await connection.query(
       `INSERT INTO orders (table_id, session_id, status, payment_method, payment_status, total_amount)
-        VALUES (?, ?, 'unserved', ?, ?, ?)`,
+        VALUES (?, ?, 'pending', ?, ?, ?)`,
       [
         table_id,
         session_id,
@@ -73,7 +73,7 @@ export const createOrder = async (req, res) => {
       table_id,
       total_amount,
       items,
-      status: 'unserved',
+      status: 'pending',
     });
 
     res.status(201).json({
@@ -264,7 +264,7 @@ export const markOrderAsPaid = async (req, res) => {
 
 // Confirm an order
 export const confirmOrder = async (req, res) => {
-  const { id } = req.params; // order_id
+  const { id } = req.params;
 
   try {
     const [orders] = await db.query(
@@ -272,24 +272,20 @@ export const confirmOrder = async (req, res) => {
       [id]
     );
 
-    if (orders.length === 0) {
+    if (orders.length === 0)
       return res.status(404).json({ message: 'Order not found' });
-    }
 
     const tableId = orders[0].table_id;
 
-    // Update order status to unserved
     await db.query(
-      `UPDATE orders 
-        SET status = 'unserved'
-        WHERE id = ?`,
+      `UPDATE orders SET status = 'unserved' WHERE id = ? AND status = 'pending'`,
       [id]
     );
 
     await db.query(
       `UPDATE tables 
-        SET status = 'in_progress'
-        WHERE id = ? AND status IN ('available', 'occupied')`,
+    SET status = 'in_progress'
+    WHERE id = ?`,
       [tableId]
     );
 
@@ -317,36 +313,36 @@ export const markOrderAsServed = async (req, res) => {
       [id]
     );
 
-    if (orders.length === 0) {
+    if (orders.length === 0)
       return res.status(404).json({ message: 'Order not found' });
-    }
 
     const tableId = orders[0].table_id;
 
+    // Mark all unserved orders for the same table as served
     await db.query(
       `UPDATE orders 
         SET status = 'served'
-        WHERE id = ?`,
-      [id]
+        WHERE table_id = ? AND status = 'unserved'`,
+      [tableId]
     );
 
+    // If none left unserved, mark table as served
     const [remaining] = await db.query(
       `SELECT COUNT(*) AS unserved_count 
-        FROM orders 
-        WHERE table_id = ? AND status != 'served'`,
+        FROM orders WHERE table_id = ? AND status = 'unserved'`,
       [tableId]
     );
 
     if (remaining[0].unserved_count === 0) {
+      console.log(`All orders served for Table #${tableId}`);
       await db.query(`UPDATE tables SET status = 'served' WHERE id = ?`, [
         tableId,
       ]);
-
       notifyTableStatus(tableId, 'served');
     }
 
     res.status(200).json({
-      message: `Order #${id} marked as served.`,
+      message: `Orders for Table #${tableId} marked as served.`,
       table_id: tableId,
     });
   } catch (error) {
