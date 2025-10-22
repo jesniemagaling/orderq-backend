@@ -6,6 +6,7 @@ import {
   getOrdersBySession,
   markOrderAsPaid,
   confirmOrder,
+  markOrderAsServed,
 } from '../controllers/orderController.js';
 
 const router = express.Router();
@@ -16,5 +17,6 @@ router.get('/', getAllOrders);
 router.get('/by-session', getOrdersBySession);
 router.get('/:id', getOrderDetails);
 router.put('/:id/pay', markOrderAsPaid);
+router.put('/:id/serve', markOrderAsServed);
 
 export default router;

@@ -1,7 +1,7 @@
 import { db } from '../config/db.js';
 import { notifyNewOrder, notifyTableStatus } from '../../index.js';
 
-// Create an order
+// Create a new order
 export const createOrder = async (req, res) => {
   const { table_id, session_token, items, payment_method } = req.body;
 
@@ -33,10 +33,10 @@ export const createOrder = async (req, res) => {
       0
     );
 
-    // Insert new order
+    // Insert new order — status = 'unserved' by default
     const [orderResult] = await connection.query(
-      `INSERT INTO orders (table_id, session_id, status, serve_status, payment_method, payment_status, total_amount)
-        VALUES (?, ?, 'pending', 'unserved', ?, ?, ?)`,
+      `INSERT INTO orders (table_id, session_id, status, payment_method, payment_status, total_amount)
+        VALUES (?, ?, 'unserved', ?, ?, ?)`,
       [
         table_id,
         session_id,
@@ -67,13 +67,13 @@ export const createOrder = async (req, res) => {
 
     await connection.commit();
 
-    // Notify frontend that a new order was created (but not confirmed yet)
+    // Notify frontend
     notifyNewOrder(table_id, {
       id: orderId,
       table_id,
       total_amount,
       items,
-      status: 'pending',
+      status: 'unserved',
     });
 
     res.status(201).json({
@@ -110,11 +110,8 @@ export const getAllOrders = async (req, res) => {
       ORDER BY o.created_at DESC
     `);
 
-    if (orders.length === 0) {
-      return res.status(200).json([]);
-    }
+    if (orders.length === 0) return res.status(200).json([]);
 
-    // Get order items
     const [items] = await db.query(`
       SELECT 
         oi.order_id,
@@ -126,7 +123,6 @@ export const getAllOrders = async (req, res) => {
       JOIN menu m ON oi.menu_id = m.id
     `);
 
-    // Attach items to each order
     const formattedOrders = orders.map((order) => ({
       ...order,
       items: items
@@ -141,7 +137,7 @@ export const getAllOrders = async (req, res) => {
 
     res.status(200).json(formattedOrders);
   } catch (error) {
-    console.error('Error fetching orders with items:', error);
+    console.error('Error fetching orders:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -219,7 +215,6 @@ export const getOrdersBySession = async (req, res) => {
       [session_id]
     );
 
-    // Fetch and attach items for each order
     const [items] = await db.query(`
       SELECT 
         oi.order_id, m.name AS name, oi.quantity, oi.price
@@ -252,7 +247,7 @@ export const markOrderAsPaid = async (req, res) => {
   try {
     const [result] = await db.query(
       `UPDATE orders 
-        SET payment_status = 'paid', status = 'paid'
+        SET payment_status = 'paid'
         WHERE id = ?`,
       [id]
     );
@@ -269,7 +264,7 @@ export const markOrderAsPaid = async (req, res) => {
 
 // Confirm an order
 export const confirmOrder = async (req, res) => {
-  const { id } = req.params; // order id
+  const { id } = req.params; // order_id
 
   try {
     const [orders] = await db.query(
@@ -283,17 +278,79 @@ export const confirmOrder = async (req, res) => {
 
     const tableId = orders[0].table_id;
 
-    await db.query('UPDATE tables SET status = "in_progress" WHERE id = ?', [
-      tableId,
-    ]);
+    // Update order status to unserved
+    await db.query(
+      `UPDATE orders 
+        SET status = 'unserved'
+        WHERE id = ?`,
+      [id]
+    );
+
+    await db.query(
+      `UPDATE tables 
+        SET status = 'in_progress'
+        WHERE id = ? AND status IN ('available', 'occupied')`,
+      [tableId]
+    );
 
     notifyTableStatus(tableId, 'in_progress');
+    notifyNewOrder(tableId, { orderId: id, confirmed: true });
 
-    res
-      .status(200)
-      .json({ message: `Order #${id} confirmed, table set to in_progress` });
+    res.status(200).json({
+      message: `Order #${id} confirmed successfully.`,
+      table_id: tableId,
+      order_id: id,
+    });
   } catch (error) {
     console.error('Error confirming order:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Mark order as served (kitchen action)
+export const markOrderAsServed = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [orders] = await db.query(
+      'SELECT table_id FROM orders WHERE id = ? LIMIT 1',
+      [id]
+    );
+
+    if (orders.length === 0) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    const tableId = orders[0].table_id;
+
+    await db.query(
+      `UPDATE orders 
+        SET status = 'served'
+        WHERE id = ?`,
+      [id]
+    );
+
+    const [remaining] = await db.query(
+      `SELECT COUNT(*) AS unserved_count 
+        FROM orders 
+        WHERE table_id = ? AND status != 'served'`,
+      [tableId]
+    );
+
+    if (remaining[0].unserved_count === 0) {
+      await db.query(`UPDATE tables SET status = 'served' WHERE id = ?`, [
+        tableId,
+      ]);
+
+      notifyTableStatus(tableId, 'served');
+    }
+
+    res.status(200).json({
+      message: `Order #${id} marked as served.`,
+      table_id: tableId,
+    });
+  } catch (error) {
+    console.error('Error marking order as served:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
