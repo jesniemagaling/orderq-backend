@@ -74,6 +74,7 @@ export const createOrder = async (req, res) => {
       total_amount,
       items,
       status: 'pending',
+      confirmed: false,
     });
 
     res.status(201).json({
@@ -290,7 +291,7 @@ export const confirmOrder = async (req, res) => {
     );
 
     notifyTableStatus(tableId, 'in_progress');
-    notifyNewOrder(tableId, { orderId: id, confirmed: true });
+    notifyNewOrder(tableId, { tableId, orderId: id, confirmed: true });
 
     res.status(200).json({
       message: `Order #${id} confirmed successfully.`,

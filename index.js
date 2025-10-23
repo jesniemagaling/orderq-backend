@@ -25,8 +25,8 @@ io.on('connection', (socket) => {
   });
 });
 
-export const notifyNewOrder = (tableId, order) => {
-  io.emit('newOrder', { tableId, order });
+export const notifyNewOrder = (tableId, data = {}) => {
+  io.emit('newOrder', { tableId, ...data });
   console.log(`New order event emitted for Table ${tableId}`);
 };
 
