@@ -5,6 +5,7 @@ import {
   addMenuItem,
   updateMenuItem,
   deleteMenuItem,
+  getTopSellingItems,
 } from '../controllers/menuController.js';
 import { verifyToken, verifyRole } from '../middleware/authMiddleware.js';
 import { body, validationResult } from 'express-validator';
@@ -13,10 +14,12 @@ const router = express.Router();
 
 router.get('/', getMenu);
 router.get('/:id', getMenuById);
+router.get('/top-selling', getTopSellingItems);
+
 router.post(
   '/',
   // verifyToken,
-  // verifyRole(['admin']), // Uncomment this if you want admin-only access
+  // verifyRole(['admin']), // Uncomment to protect
   [body('name').notEmpty(), body('price').isFloat({ gt: 0 })],
   async (req, res) => {
     const errors = validationResult(req);
@@ -26,10 +29,11 @@ router.post(
     addMenuItem(req, res);
   }
 );
+
 router.put(
   '/:id',
   // verifyToken,
-  // verifyRole(['admin']), // Uncomment this if needed
+  // verifyRole(['admin']), // Uncomment to protect
   [body('name').notEmpty(), body('price').isFloat({ gt: 0 })],
   async (req, res) => {
     const errors = validationResult(req);
@@ -39,10 +43,11 @@ router.put(
     updateMenuItem(req, res);
   }
 );
+
 router.delete(
   '/:id',
   // verifyToken,
-  // verifyRole(['admin']), // Optional protection
+  // verifyRole(['admin']), // Uncomment to protect
   async (req, res) => {
     deleteMenuItem(req, res);
   }

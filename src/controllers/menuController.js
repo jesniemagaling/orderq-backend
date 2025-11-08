@@ -132,3 +132,31 @@ export const deleteMenuItem = async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 };
+
+// Get top-selling menu items (by total quantity sold)
+export const getTopSellingItems = async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT 
+        m.name,
+        SUM(oi.quantity) AS total_sold,
+        SUM(oi.quantity * oi.price) AS total_amount
+      FROM order_items oi
+      JOIN menu m ON oi.menu_id = m.id
+      GROUP BY m.id
+      ORDER BY total_sold DESC
+      LIMIT 5
+    `);
+
+    const formatted = rows.map((r) => ({
+      name: r.name,
+      amount: Number(r.total_amount || 0),
+      delta: Number((Math.random() * 2 - 1).toFixed(2)), // simulate up/down % for now
+    }));
+
+    res.status(200).json(formatted);
+  } catch (error) {
+    console.error('Error fetching top-selling items:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};

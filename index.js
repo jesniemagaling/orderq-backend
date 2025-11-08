@@ -35,6 +35,10 @@ export const notifyTableStatus = (tableId, status) => {
   console.log(`Table ${tableId} status updated → ${status}`);
 };
 
+export const notifySessionUpdate = (sessionData) => {
+  io.emit('sessionUpdate', sessionData);
+};
+
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });

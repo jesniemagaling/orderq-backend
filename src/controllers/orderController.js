@@ -96,6 +96,11 @@ export const createOrder = async (req, res) => {
 // Get all orders with their items
 export const getAllOrders = async (req, res) => {
   try {
+    const limit = parseInt(req.query.limit) || null;
+    const sort = req.query.sort === 'asc' ? 'ASC' : 'DESC';
+
+    const limitClause = limit ? `LIMIT ${limit}` : '';
+
     const [orders] = await db.query(`
       SELECT 
         o.id,
@@ -108,7 +113,8 @@ export const getAllOrders = async (req, res) => {
         t.table_number
       FROM orders o
       LEFT JOIN tables t ON o.table_id = t.id
-      ORDER BY o.created_at DESC
+      ORDER BY o.created_at ${sort}
+      ${limitClause}
     `);
 
     if (orders.length === 0) return res.status(200).json([]);
@@ -348,6 +354,51 @@ export const markOrderAsServed = async (req, res) => {
     });
   } catch (error) {
     console.error('Error marking order as served:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+export const getSalesGraph = async (req, res) => {
+  const { interval = 'hourly' } = req.query;
+
+  try {
+    let query;
+
+    if (interval === 'hourly') {
+      query = `
+        SELECT HOUR(created_at) AS label, SUM(total_amount) AS value
+        FROM orders
+        WHERE DATE(created_at) = CURDATE()
+        GROUP BY HOUR(created_at)
+        ORDER BY HOUR(created_at)
+      `;
+    } else if (interval === 'weekly') {
+      query = `
+        SELECT DATE(created_at) AS label, SUM(total_amount) AS value
+        FROM orders
+        WHERE YEARWEEK(created_at) = YEARWEEK(NOW())
+        GROUP BY DATE(created_at)
+        ORDER BY DATE(created_at)
+      `;
+    } else if (interval === 'monthly') {
+      query = `
+        SELECT DATE(created_at) AS label, SUM(total_amount) AS value
+        FROM orders
+        WHERE MONTH(created_at) = MONTH(NOW()) AND YEAR(created_at) = YEAR(NOW())
+        GROUP BY DATE(created_at)
+        ORDER BY DATE(created_at)
+      `;
+    }
+
+    const [rows] = await db.query(query);
+    const formatted = rows.map((r) => ({
+      time: r.label?.toString() ?? '',
+      value: Number(r.value || 0),
+    }));
+
+    res.status(200).json(formatted);
+  } catch (error) {
+    console.error('Error fetching sales graph:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };

@@ -1,6 +1,6 @@
 import { db } from '../config/db.js';
 import crypto from 'crypto';
-import { notifyTableStatus } from '../../index.js';
+import { notifyTableStatus, notifySessionUpdate } from '../../index.js';
 
 // Create or reuse active session when QR is scanned
 export const createSession = async (req, res) => {
@@ -39,8 +39,16 @@ export const createSession = async (req, res) => {
     );
 
     if (activeSession.length > 0) {
-      // Reuse same session token
       await connection.commit();
+
+      // Notify realtime update even for reused session
+      notifySessionUpdate({
+        table_id: table.id,
+        table_number: table.table_number,
+        status: 'active',
+        reused: true,
+      });
+
       return res.status(200).json({
         message: 'Session already active',
         table_id: table.id,
@@ -50,7 +58,7 @@ export const createSession = async (req, res) => {
       });
     }
 
-    // No active session thn it will create new one
+    // No active session -> create new one
     const token = crypto.randomBytes(24).toString('hex');
 
     await connection.query(
@@ -66,11 +74,19 @@ export const createSession = async (req, res) => {
         table.id,
       ]);
 
-      // Emit WebSocket update
+      // Emit WebSocket update to all dashboards
       notifyTableStatus(table.id, 'occupied');
     }
 
     await connection.commit();
+
+    // Notify realtime update for dashboards / admins
+    notifySessionUpdate({
+      table_id: table.id,
+      table_number: table.table_number,
+      token,
+      status: 'created',
+    });
 
     res.status(201).json({
       message: 'New session created',
