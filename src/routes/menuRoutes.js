@@ -13,9 +13,8 @@ import { body, validationResult } from 'express-validator';
 const router = express.Router();
 
 router.get('/', getMenu);
-router.get('/:id', getMenuById);
 router.get('/top-selling', getTopSellingItems);
-
+router.get('/:id', getMenuById);
 router.post(
   '/',
   // verifyToken,

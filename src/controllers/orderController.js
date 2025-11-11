@@ -358,6 +358,7 @@ export const markOrderAsServed = async (req, res) => {
   }
 };
 
+// Get sales graph data
 export const getSalesGraph = async (req, res) => {
   const { interval = 'hourly' } = req.query;
 
@@ -399,6 +400,25 @@ export const getSalesGraph = async (req, res) => {
     res.status(200).json(formatted);
   } catch (error) {
     console.error('Error fetching sales graph:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Get today's total revenue
+export const getRevenueByRange = async (req, res) => {
+  const { start, end } = req.query;
+  try {
+    const [rows] = await db.query(
+      `SELECT DATE(created_at) AS date, SUM(total_amount) AS total
+        FROM orders
+        WHERE created_at BETWEEN ? AND ?
+        GROUP BY DATE(created_at)
+        ORDER BY date ASC`,
+      [start, end]
+    );
+    res.status(200).json(rows);
+  } catch (err) {
+    console.error('Error fetching range revenue:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
