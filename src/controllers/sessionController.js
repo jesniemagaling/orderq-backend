@@ -128,3 +128,67 @@ export const verifySession = async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 };
+
+// End an active session
+export const endSession = async (req, res) => {
+  const { token } = req.params;
+
+  if (!token) {
+    return res.status(400).json({ message: 'Session token is required' });
+  }
+
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    // Get session and table info
+    const [sessions] = await connection.query(
+      `SELECT s.id, s.table_id, t.status 
+        FROM sessions s
+        JOIN tables t ON s.table_id = t.id
+        WHERE s.token = ? AND s.is_active = 1
+        LIMIT 1`,
+      [token]
+    );
+
+    if (sessions.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ message: 'Active session not found' });
+    }
+
+    const session = sessions[0];
+
+    // Deactivate the session
+    await connection.query(
+      `UPDATE sessions 
+        SET is_active = 0, expires_at = NOW()
+        WHERE id = ?`,
+      [session.id]
+    );
+
+    // Set table to available again
+    await connection.query(
+      `UPDATE tables 
+        SET status = 'available'
+        WHERE id = ?`,
+      [session.table_id]
+    );
+
+    // Notify via WebSocket
+    notifyTableStatus(session.table_id, 'available');
+
+    await connection.commit();
+
+    res.status(200).json({
+      message: `Session for Table #${session.table_id} has been ended.`,
+      table_id: session.table_id,
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error('Error ending session:', error);
+    res.status(500).json({ message: 'Server error' });
+  } finally {
+    connection.release();
+  }
+};
