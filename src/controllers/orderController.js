@@ -339,6 +339,7 @@ export const markOrderAsServed = async (req, res) => {
   const { id } = req.params;
 
   try {
+    // Get the order and related table_id
     const [orders] = await db.query(
       'SELECT table_id FROM orders WHERE id = ? LIMIT 1',
       [id]
@@ -349,32 +350,45 @@ export const markOrderAsServed = async (req, res) => {
 
     const tableId = orders[0].table_id;
 
-    // Mark all unserved orders for the same table as served
+    // Mark all unserved orders for that table as served
     await db.query(
       `UPDATE orders 
-        SET status = 'served'
-        WHERE table_id = ? AND status = 'unserved'`,
+         SET status = 'served' 
+       WHERE table_id = ? AND status = 'unserved'`,
       [tableId]
     );
 
-    // If none left unserved, mark table as served
-    const [remaining] = await db.query(
-      `SELECT COUNT(*) AS unserved_count 
-        FROM orders WHERE table_id = ? AND status = 'unserved'`,
+    // Check if any unserved or served orders still exist for the table
+    const [activeOrders] = await db.query(
+      `SELECT 
+          SUM(CASE WHEN status = 'unserved' THEN 1 ELSE 0 END) AS unserved_count,
+          SUM(CASE WHEN status = 'served' THEN 1 ELSE 0 END) AS served_count
+       FROM orders 
+       WHERE table_id = ?`,
       [tableId]
     );
 
-    if (remaining[0].unserved_count === 0) {
-      console.log(`All orders served for Table #${tableId}`);
-      await db.query(`UPDATE tables SET status = 'served' WHERE id = ?`, [
-        tableId,
-      ]);
-      notifyTableStatus(tableId, 'served');
-    }
+    const hasUnserved = activeOrders[0].unserved_count > 0;
+    const hasServed = activeOrders[0].served_count > 0;
+
+    let newStatus = 'available';
+
+    if (hasUnserved) newStatus = 'unserved';
+    else if (hasServed) newStatus = 'served';
+
+    // Update table status
+    await db.query('UPDATE tables SET status = ? WHERE id = ?', [
+      newStatus,
+      tableId,
+    ]);
+
+    // Notify all dashboards via WebSocket
+    notifyTableStatus(tableId, newStatus);
 
     res.status(200).json({
       message: `Orders for Table #${tableId} marked as served.`,
       table_id: tableId,
+      new_status: newStatus,
     });
   } catch (error) {
     console.error('Error marking order as served:', error);
@@ -390,34 +404,34 @@ export const getSalesGraph = async (req, res) => {
 
     if (interval === 'hourly') {
       query = `
-    SELECT DATE_FORMAT(MIN(created_at), '%H:00') AS time, 
-            SUM(total_amount) AS value
-    FROM orders
-    WHERE created_at >= NOW() - INTERVAL 1 DAY
-      AND status IN ('served', 'completed')
-    GROUP BY HOUR(created_at)
-    ORDER BY HOUR(created_at);
-  `;
+          SELECT DATE_FORMAT(MIN(created_at), '%H:00') AS time, 
+                  SUM(total_amount) AS value
+          FROM orders
+          WHERE created_at >= NOW() - INTERVAL 1 DAY
+            AND status IN ('served', 'completed')
+          GROUP BY HOUR(created_at)
+          ORDER BY HOUR(created_at);
+        `;
     } else if (interval === 'weekly') {
       query = `
-    SELECT DATE_FORMAT(MIN(created_at), '%a') AS time, 
-            SUM(total_amount) AS value
-    FROM orders
-    WHERE created_at >= NOW() - INTERVAL 7 DAY
-      AND status IN ('served', 'completed')
-    GROUP BY DAYOFWEEK(created_at)
-    ORDER BY DAYOFWEEK(created_at);
-  `;
+          SELECT DATE_FORMAT(MIN(created_at), '%a') AS time, 
+                  SUM(total_amount) AS value
+          FROM orders
+          WHERE created_at >= NOW() - INTERVAL 7 DAY
+            AND status IN ('served', 'completed')
+          GROUP BY DAYOFWEEK(created_at)
+          ORDER BY DAYOFWEEK(created_at);
+        `;
     } else if (interval === 'monthly') {
       query = `
-    SELECT DATE_FORMAT(MIN(created_at), '%b %Y') AS time,
-            SUM(total_amount) AS value
-    FROM orders
-    WHERE created_at >= NOW() - INTERVAL 6 MONTH
-      AND status IN ('served', 'completed')
-    GROUP BY YEAR(created_at), MONTH(created_at)
-    ORDER BY YEAR(created_at), MONTH(created_at);
-  `;
+          SELECT DATE_FORMAT(MIN(created_at), '%b %Y') AS time,
+                  SUM(total_amount) AS value
+          FROM orders
+          WHERE created_at >= NOW() - INTERVAL 6 MONTH
+            AND status IN ('served', 'completed')
+          GROUP BY YEAR(created_at), MONTH(created_at)
+          ORDER BY YEAR(created_at), MONTH(created_at);
+        `;
     }
 
     const [rows] = await db.query(query);
@@ -443,6 +457,22 @@ export const getRevenueByRange = async (req, res) => {
     res.status(200).json(rows);
   } catch (err) {
     console.error('Error fetching range revenue:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+// Get count of active orders
+export const getActiveOrdersCount = async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT COUNT(*) AS active_orders 
+        FROM orders 
+        WHERE status IN ('unserved', 'in_progress')`
+    );
+
+    res.status(200).json({ count: rows[0].active_orders });
+  } catch (error) {
+    console.error('Error fetching active orders count:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };

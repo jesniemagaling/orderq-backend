@@ -9,6 +9,7 @@ import {
   markOrderAsServed,
   getSalesGraph,
   getRevenueByRange,
+  getActiveOrdersCount,
 } from '../controllers/orderController.js';
 
 const router = express.Router();
@@ -23,6 +24,7 @@ router.get('/sales-graph', getSalesGraph);
 router.get('/revenue', getRevenueByRange);
 router.get('/by-session', getOrdersBySession);
 router.get('/:id', getOrderDetails);
+router.get('/active-count', getActiveOrdersCount);
 
 // PUT routes
 router.put('/:id/pay', markOrderAsPaid);
