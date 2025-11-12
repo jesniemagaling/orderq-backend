@@ -360,47 +360,50 @@ export const markOrderAsServed = async (req, res) => {
 
 // Get sales graph data
 export const getSalesGraph = async (req, res) => {
-  const { interval = 'hourly' } = req.query;
-
   try {
-    let query;
+    const { interval = 'hourly' } = req.query;
+
+    let query = '';
 
     if (interval === 'hourly') {
+      // last 24 hours
       query = `
-        SELECT HOUR(created_at) AS label, SUM(total_amount) AS value
+        SELECT DATE_FORMAT(created_at, '%H:00') AS time, 
+                SUM(total_amount) AS value
         FROM orders
-        WHERE DATE(created_at) = CURDATE()
-        GROUP BY HOUR(created_at)
-        ORDER BY HOUR(created_at)
+        WHERE created_at >= NOW() - INTERVAL 1 DAY
+          AND status IN ('served', 'completed')
+        GROUP BY DATE_FORMAT(created_at, '%H')
+        ORDER BY time ASC;
       `;
     } else if (interval === 'weekly') {
+      // last 7 days
       query = `
-        SELECT DATE(created_at) AS label, SUM(total_amount) AS value
+        SELECT DATE_FORMAT(created_at, '%a') AS time, 
+                SUM(total_amount) AS value
         FROM orders
-        WHERE YEARWEEK(created_at) = YEARWEEK(NOW())
-        GROUP BY DATE(created_at)
-        ORDER BY DATE(created_at)
+        WHERE created_at >= NOW() - INTERVAL 7 DAY
+          AND status IN ('served', 'completed')
+        GROUP BY DATE_FORMAT(created_at, '%a')
+        ORDER BY MIN(created_at);
       `;
     } else if (interval === 'monthly') {
       query = `
-        SELECT DATE(created_at) AS label, SUM(total_amount) AS value
+        SELECT CONCAT('Week ', WEEK(created_at)) AS time, 
+                SUM(total_amount) AS value
         FROM orders
-        WHERE MONTH(created_at) = MONTH(NOW()) AND YEAR(created_at) = YEAR(NOW())
-        GROUP BY DATE(created_at)
-        ORDER BY DATE(created_at)
+        WHERE created_at >= NOW() - INTERVAL 30 DAY
+          AND status IN ('served', 'completed')
+        GROUP BY WEEK(created_at)
+        ORDER BY WEEK(created_at);
       `;
     }
 
     const [rows] = await db.query(query);
-    const formatted = rows.map((r) => ({
-      time: r.label?.toString() ?? '',
-      value: Number(r.value || 0),
-    }));
-
-    res.status(200).json(formatted);
-  } catch (error) {
-    console.error('Error fetching sales graph:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.json(rows);
+  } catch (err) {
+    console.error('Error fetching sales graph:', err);
+    res.status(500).json({ message: 'Failed to fetch sales graph data' });
   }
 };
 
