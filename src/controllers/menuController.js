@@ -1,4 +1,5 @@
 import { db } from '../config/db.js';
+import { notifyMenuUpdate } from '../../index.js';
 
 // Fetch all menu items
 export const getMenu = async (req, res) => {
@@ -62,6 +63,11 @@ export const addMenuItem = async (req, res) => {
     );
 
     res.status(201).json({ message: 'Menu item added successfully!' });
+
+    notifyMenuUpdate({
+      type: 'add',
+      item: { name, description, price, category, stocks, status, image_url },
+    });
   } catch (error) {
     console.error('Error adding menu item:', error);
     res.status(500).json({ message: 'Server error' });
@@ -112,6 +118,20 @@ export const updateMenuItem = async (req, res) => {
     );
 
     res.status(200).json({ message: 'Menu item updated successfully!' });
+
+    notifyMenuUpdate({
+      type: 'update',
+      item: {
+        id,
+        name,
+        description,
+        price,
+        category,
+        stocks,
+        status,
+        image_url,
+      },
+    });
   } catch (error) {
     console.error('Error updating menu item:', error);
     res.status(500).json({ message: 'Server error' });
@@ -127,6 +147,10 @@ export const deleteMenuItem = async (req, res) => {
       return res.status(404).json({ message: 'Menu item not found' });
     }
     res.status(200).json({ message: 'Menu item deleted successfully!' });
+    notifyMenuUpdate({
+      type: 'delete',
+      item: { id },
+    });
   } catch (error) {
     console.error('Error deleting menu item:', error);
     res.status(500).json({ message: 'Server error' });

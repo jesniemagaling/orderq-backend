@@ -35,6 +35,10 @@ export const notifyTableStatus = (tableId, status) => {
   console.log(`Table ${tableId} status updated → ${status}`);
 };
 
+export const notifyMenuUpdate = (menuItem) => {
+  io.emit('menuUpdated', menuItem);
+};
+
 export const notifySessionUpdate = (sessionData) => {
   io.emit('sessionUpdate', sessionData);
 };

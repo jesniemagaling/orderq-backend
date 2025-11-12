@@ -1,5 +1,9 @@
 import { db } from '../config/db.js';
-import { notifyNewOrder, notifyTableStatus } from '../../index.js';
+import {
+  notifyNewOrder,
+  notifyTableStatus,
+  notifyMenuUpdate,
+} from '../../index.js';
 
 // Create a new order
 export const createOrder = async (req, res) => {
@@ -63,6 +67,16 @@ export const createOrder = async (req, res) => {
           WHERE id = ?`,
         [item.quantity, item.quantity, item.menu_id]
       );
+
+      const [updatedMenuItem] = await connection.query(
+        'SELECT * FROM menu WHERE id = ?',
+        [item.menu_id]
+      );
+
+      notifyMenuUpdate({
+        type: 'update',
+        item: updatedMenuItem[0],
+      });
     }
 
     await connection.commit();
