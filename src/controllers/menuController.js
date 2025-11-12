@@ -140,12 +140,11 @@ export const getTopSellingItems = async (req, res) => {
       SELECT 
         m.id,
         m.name,
-        IFNULL(SUM(oi.quantity), 0) AS total_sold,
-        IFNULL(SUM(oi.quantity * oi.price), 0) AS total_amount
+        IFNULL(SUM(oi.quantity), 0) AS total_sold
       FROM order_items oi
       JOIN menu m ON oi.menu_id = m.id
       JOIN orders o ON oi.order_id = o.id
-      WHERE o.status IN ('served', 'completed')  -- optional: only count finished orders
+      WHERE o.status IN ('served', 'completed')  -- count only completed orders
       GROUP BY m.id
       ORDER BY total_sold DESC
       LIMIT 5
@@ -153,7 +152,7 @@ export const getTopSellingItems = async (req, res) => {
 
     const formatted = rows.map((r) => ({
       name: r.name,
-      amount: Number(r.total_amount || 0),
+      sold: Number(r.total_sold || 0),
       delta: Number((Math.random() * 2 - 1).toFixed(2)),
     }));
 

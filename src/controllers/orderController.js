@@ -362,30 +362,27 @@ export const markOrderAsServed = async (req, res) => {
 export const getSalesGraph = async (req, res) => {
   try {
     const { interval = 'hourly' } = req.query;
-
     let query = '';
 
     if (interval === 'hourly') {
-      // last 24 hours
       query = `
-        SELECT DATE_FORMAT(created_at, '%H:00') AS time, 
+        SELECT DATE_FORMAT(MIN(created_at), '%H:00') AS time, 
                 SUM(total_amount) AS value
         FROM orders
         WHERE created_at >= NOW() - INTERVAL 1 DAY
           AND status IN ('served', 'completed')
-        GROUP BY DATE_FORMAT(created_at, '%H')
-        ORDER BY time ASC;
+        GROUP BY HOUR(created_at)
+        ORDER BY HOUR(created_at);
       `;
     } else if (interval === 'weekly') {
-      // last 7 days
       query = `
-        SELECT DATE_FORMAT(created_at, '%a') AS time, 
+        SELECT DATE_FORMAT(MIN(created_at), '%a') AS time, 
                 SUM(total_amount) AS value
         FROM orders
         WHERE created_at >= NOW() - INTERVAL 7 DAY
           AND status IN ('served', 'completed')
-        GROUP BY DATE_FORMAT(created_at, '%a')
-        ORDER BY MIN(created_at);
+        GROUP BY DAYOFWEEK(created_at)
+        ORDER BY DAYOFWEEK(created_at);
       `;
     } else if (interval === 'monthly') {
       query = `
@@ -400,7 +397,7 @@ export const getSalesGraph = async (req, res) => {
     }
 
     const [rows] = await db.query(query);
-    res.json(rows);
+    res.status(200).json(rows);
   } catch (err) {
     console.error('Error fetching sales graph:', err);
     res.status(500).json({ message: 'Failed to fetch sales graph data' });
