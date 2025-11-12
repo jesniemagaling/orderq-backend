@@ -143,6 +143,8 @@ export const getTableDetails = async (req, res) => {
     // Attach items to their respective orders
     const formattedOrders = orders.map((order, index) => ({
       ...order,
+      table_id, // from table_id param
+      table_number: table.table_number,
       is_additional: index > 0, // if not the first, mark as additional
       items: items
         .filter((i) => i.order_id === order.id)

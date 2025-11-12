@@ -81,10 +81,20 @@ export const createOrder = async (req, res) => {
 
     await connection.commit();
 
+    // Fetch table number
+    const [tableRows] = await connection.query(
+      'SELECT table_number FROM tables WHERE id = ?',
+      [table_id]
+    );
+    const table_number = tableRows.length
+      ? tableRows[0].table_number
+      : `T${table_id}`;
+
     // Notify frontend
     notifyNewOrder(table_id, {
       id: orderId,
       table_id,
+      table_number,
       total_amount,
       items,
       status: 'pending',
@@ -124,7 +134,7 @@ export const getAllOrders = async (req, res) => {
         o.payment_method,
         o.payment_status,
         o.created_at,
-        t.table_number
+        COALESCE(t.table_number, CONCAT('T', o.table_id)) AS table_number
       FROM orders o
       LEFT JOIN tables t ON o.table_id = t.id
       ORDER BY o.created_at ${sort}
@@ -226,11 +236,11 @@ export const getOrdersBySession = async (req, res) => {
 
     const [orders] = await db.query(
       `SELECT 
-          o.id, o.status, o.payment_status, o.payment_method,
-          o.total_amount, o.created_at,
-          t.table_number
+      o.id, o.status, o.payment_status, o.payment_method,
+      o.total_amount, o.created_at,
+      COALESCE(t.table_number, CONCAT('T', o.table_id)) AS table_number
         FROM orders o
-        JOIN tables t ON o.table_id = t.id
+        LEFT JOIN tables t ON o.table_id = t.id
         WHERE o.session_id = ?
         ORDER BY o.created_at DESC`,
       [session_id]
@@ -380,34 +390,34 @@ export const getSalesGraph = async (req, res) => {
 
     if (interval === 'hourly') {
       query = `
-        SELECT DATE_FORMAT(MIN(created_at), '%H:00') AS time, 
-                SUM(total_amount) AS value
-        FROM orders
-        WHERE created_at >= NOW() - INTERVAL 1 DAY
-          AND status IN ('served', 'completed')
-        GROUP BY HOUR(created_at)
-        ORDER BY HOUR(created_at);
-      `;
+    SELECT DATE_FORMAT(MIN(created_at), '%H:00') AS time, 
+            SUM(total_amount) AS value
+    FROM orders
+    WHERE created_at >= NOW() - INTERVAL 1 DAY
+      AND status IN ('served', 'completed')
+    GROUP BY HOUR(created_at)
+    ORDER BY HOUR(created_at);
+  `;
     } else if (interval === 'weekly') {
       query = `
-        SELECT DATE_FORMAT(MIN(created_at), '%a') AS time, 
-                SUM(total_amount) AS value
-        FROM orders
-        WHERE created_at >= NOW() - INTERVAL 7 DAY
-          AND status IN ('served', 'completed')
-        GROUP BY DAYOFWEEK(created_at)
-        ORDER BY DAYOFWEEK(created_at);
-      `;
+    SELECT DATE_FORMAT(MIN(created_at), '%a') AS time, 
+            SUM(total_amount) AS value
+    FROM orders
+    WHERE created_at >= NOW() - INTERVAL 7 DAY
+      AND status IN ('served', 'completed')
+    GROUP BY DAYOFWEEK(created_at)
+    ORDER BY DAYOFWEEK(created_at);
+  `;
     } else if (interval === 'monthly') {
       query = `
-        SELECT CONCAT('Week ', WEEK(created_at)) AS time, 
-                SUM(total_amount) AS value
-        FROM orders
-        WHERE created_at >= NOW() - INTERVAL 30 DAY
-          AND status IN ('served', 'completed')
-        GROUP BY WEEK(created_at)
-        ORDER BY WEEK(created_at);
-      `;
+    SELECT DATE_FORMAT(MIN(created_at), '%b %Y') AS time,
+            SUM(total_amount) AS value
+    FROM orders
+    WHERE created_at >= NOW() - INTERVAL 6 MONTH
+      AND status IN ('served', 'completed')
+    GROUP BY YEAR(created_at), MONTH(created_at)
+    ORDER BY YEAR(created_at), MONTH(created_at);
+  `;
     }
 
     const [rows] = await db.query(query);
