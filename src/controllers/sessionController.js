@@ -192,3 +192,60 @@ export const endSession = async (req, res) => {
     connection.release();
   }
 };
+
+// QR SCANNING
+export const scanSessionFromQR = async (req, res) => {
+  const { table_number } = req.params;
+
+  try {
+    // find table info
+    const [tables] = await db.query(
+      'SELECT * FROM tables WHERE table_number = ?',
+      [table_number]
+    );
+
+    if (tables.length === 0) {
+      return res.status(404).send('Table not found');
+    }
+
+    const table = tables[0];
+
+    // check active session
+    const [activeSession] = await db.query(
+      `SELECT * FROM sessions 
+        WHERE table_id = ? AND is_active = 1 AND expires_at > NOW() 
+        LIMIT 1`,
+      [table.id]
+    );
+
+    let token = null;
+
+    if (activeSession.length > 0) {
+      // reuse token
+      token = activeSession[0].token;
+    } else {
+      // create new one
+      token = crypto.randomBytes(24).toString('hex');
+      await db.query(
+        `INSERT INTO sessions (table_id, token, created_at, expires_at, is_active)
+          VALUES (?, ?, NOW(), DATE_ADD(NOW(), INTERVAL 2 HOUR), 1)`,
+        [table.id, token]
+      );
+
+      // update table status to occupied
+      if (table.status === 'available') {
+        await db.query('UPDATE tables SET status = "occupied" WHERE id = ?', [
+          table.id,
+        ]);
+        notifyTableStatus(table.id, 'occupied');
+      }
+    }
+
+    // Redirect to frontend with session token
+    const FE = process.env.FRONTEND_URL.replace(/\/$/, '');
+    return res.redirect(`${FE}/order?session=${token}`);
+  } catch (err) {
+    console.error('QR Scan Error:', err);
+    return res.status(500).send('Server error');
+  }
+};

@@ -173,3 +173,46 @@ export const getTableDetails = async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 };
+
+export const getAllTableQR = async (req, res) => {
+  try {
+    const [tables] = await db.query(
+      'SELECT id, table_number, qr_code FROM tables'
+    );
+
+    const formatted = tables.map((t) => {
+      const base = process.env.BACKEND_URL.replace(/\/$/, '');
+      const file = t.qr_code.replace(/^\//, '');
+
+      return {
+        id: t.id,
+        table_number: t.table_number,
+        qr_image_url: `${base}/${file}`,
+      };
+    });
+
+    res.status(200).json(formatted);
+  } catch (error) {
+    console.error('Error fetching QR:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+export const getTableQR = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [rows] = await db.query('SELECT qr_code FROM tables WHERE id = ?', [
+      id,
+    ]);
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Table not found' });
+    }
+
+    res.json({ qr_code: rows[0].qr_code });
+  } catch (err) {
+    console.error('Get QR Error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
