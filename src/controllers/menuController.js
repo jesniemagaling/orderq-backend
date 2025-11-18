@@ -29,6 +29,30 @@ export const getMenuById = async (req, res) => {
   }
 };
 
+export const getMenuCategories = async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT DISTINCT category 
+      FROM menu 
+      WHERE category IS NOT NULL AND category != ''
+    `);
+
+    const categories = [
+      { id: 'all', name: 'All', icon: 'images/all.png' },
+      ...rows.map((row) => ({
+        id: row.category.toLowerCase().replace(/\s+/g, '-'),
+        name: row.category,
+        icon: `images/${row.category.toLowerCase()}.png`,
+      })),
+    ];
+
+    res.status(200).json(categories);
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 // Add new menu item
 export const addMenuItem = async (req, res) => {
   try {

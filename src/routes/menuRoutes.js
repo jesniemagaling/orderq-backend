@@ -2,6 +2,7 @@ import express from 'express';
 import {
   getMenu,
   getMenuById,
+  getMenuCategories,
   addMenuItem,
   updateMenuItem,
   deleteMenuItem,
@@ -15,6 +16,7 @@ const router = express.Router();
 router.get('/', getMenu);
 router.get('/top-selling', getTopSellingItems);
 router.get('/:id', getMenuById);
+router.get('/menu/categories', getMenuCategories);
 router.post(
   '/',
   // verifyToken,
